@@ -78,7 +78,7 @@ TOU pricing varies electricity cost by time of day. This service lets you:
 **Prerequisites:** Go 1.22+
 
 ```bash
-git clone <your-repo>
+git clone https://github.com/Samruddhi-Khedikar/tou-api.git
 cd tou-api-v2
 cp .env.example .env
 make run
