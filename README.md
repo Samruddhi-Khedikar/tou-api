@@ -105,7 +105,6 @@ DB_PATH=tou.db
 ```bash
 make run        # run the server
 make build      # compile binary to bin/tou-api
-make test       # run all tests
 make tidy       # go mod tidy
 make db-shell   # open sqlite3 shell against tou.db
 ```
