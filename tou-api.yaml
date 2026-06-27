@@ -1,0 +1,393 @@
+openapi: 3.0.3
+info:
+  title: TOU Pricing API
+  description: RESTful service for managing and querying Time-of-Use (TOU) electricity pricing for individual EV charging stations.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /chargers:
+    post:
+      summary: Create a charging station
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChargerRequest'
+            example:
+              name: Station A
+              location: Bandra, Mumbai
+              timezone: Asia/Kolkata
+      responses:
+        '201':
+          description: Charger created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Charger'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /chargers/{chargerID}:
+    get:
+      summary: Get charger details
+      parameters:
+        - $ref: '#/components/parameters/chargerID'
+      responses:
+        '200':
+          description: Charger details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Charger'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /chargers/{chargerID}/pricing:
+    put:
+      summary: Replace all pricing periods (atomic)
+      description: Deletes existing periods and inserts new ones in a single transaction.
+      parameters:
+        - $ref: '#/components/parameters/chargerID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPricingRequest'
+            example:
+              periods:
+                - start_hour: 0
+                  start_minute: 0
+                  end_hour: 6
+                  end_minute: 0
+                  price_per_kwh: 0.15
+                - start_hour: 6
+                  start_minute: 0
+                  end_hour: 12
+                  end_minute: 0
+                  price_per_kwh: 0.20
+                - start_hour: 12
+                  start_minute: 0
+                  end_hour: 18
+                  end_minute: 0
+                  price_per_kwh: 0.30
+                - start_hour: 18
+                  start_minute: 0
+                  end_hour: 24
+                  end_minute: 0
+                  price_per_kwh: 0.20
+      responses:
+        '200':
+          description: Pricing updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PricingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    get:
+      summary: Get all pricing periods for a charger
+      parameters:
+        - $ref: '#/components/parameters/chargerID'
+      responses:
+        '200':
+          description: All pricing periods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PricingResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /chargers/{chargerID}/price:
+    get:
+      summary: Get price at a point in time
+      description: Converts the UTC `at` param to the charger's local timezone before matching against periods.
+      parameters:
+        - $ref: '#/components/parameters/chargerID'
+        - name: at
+          in: query
+          required: false
+          description: RFC3339 UTC timestamp. Defaults to current time if omitted.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-06-27T14:30:00Z'
+      responses:
+        '200':
+          description: Price at the requested time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetPriceAtResponse'
+              example:
+                charger_id: f0953c53-adba-496a-b3d5-e50c771f7bb6
+                charger_name: Station Mumbai
+                query_time: '2026-06-27T14:30:00Z'
+                local_time: '20:00'
+                price_per_kwh: 0.20
+                period_start: '18:00'
+                period_end: '24:00'
+                timezone: Asia/Kolkata
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /chargers/bulk/pricing:
+    post:
+      summary: Apply same pricing to multiple chargers
+      description: Partial success supported. Failed chargers appear in `errors`, not as an HTTP error.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkSetPricingRequest'
+            example:
+              charger_ids:
+                - uuid-1
+                - uuid-2
+              periods:
+                - start_hour: 0
+                  start_minute: 0
+                  end_hour: 6
+                  end_minute: 0
+                  price_per_kwh: 0.15
+      responses:
+        '200':
+          description: All chargers updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkSetPricingResponse'
+        '207':
+          description: All chargers failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkSetPricingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  parameters:
+    chargerID:
+      name: chargerID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: f0953c53-adba-496a-b3d5-e50c771f7bb6
+
+  schemas:
+    Charger:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        location:
+          type: string
+        timezone:
+          type: string
+          description: IANA timezone name
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateChargerRequest:
+      type: object
+      required: [name, location, timezone]
+      properties:
+        name:
+          type: string
+        location:
+          type: string
+        timezone:
+          type: string
+          description: Valid IANA timezone name e.g. Asia/Kolkata
+
+    PricingPeriod:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        charger_id:
+          type: string
+          format: uuid
+        start_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        start_minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+        end_hour:
+          type: integer
+          minimum: 0
+          maximum: 24
+        end_minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+        price_per_kwh:
+          type: number
+          format: float
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+
+    PricingPeriodInput:
+      type: object
+      required: [start_hour, end_hour, price_per_kwh]
+      properties:
+        start_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        start_minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+          default: 0
+        end_hour:
+          type: integer
+          minimum: 0
+          maximum: 24
+        end_minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+          default: 0
+        price_per_kwh:
+          type: number
+          format: float
+          minimum: 0
+
+    SetPricingRequest:
+      type: object
+      required: [periods]
+      properties:
+        periods:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PricingPeriodInput'
+
+    PricingResponse:
+      type: object
+      properties:
+        charger_id:
+          type: string
+          format: uuid
+        charger_name:
+          type: string
+        timezone:
+          type: string
+        periods:
+          type: array
+          items:
+            $ref: '#/components/schemas/PricingPeriod'
+
+    GetPriceAtResponse:
+      type: object
+      properties:
+        charger_id:
+          type: string
+          format: uuid
+        charger_name:
+          type: string
+        query_time:
+          type: string
+          format: date-time
+          description: The UTC timestamp that was queried
+        local_time:
+          type: string
+          description: query_time converted to the charger's local timezone (HH:MM)
+          example: '20:00'
+        price_per_kwh:
+          type: number
+          format: float
+        period_start:
+          type: string
+          description: Start of the matched period in local time (HH:MM)
+          example: '18:00'
+        period_end:
+          type: string
+          description: End of the matched period in local time (HH:MM)
+          example: '24:00'
+        timezone:
+          type: string
+
+    BulkSetPricingRequest:
+      type: object
+      required: [charger_ids, periods]
+      properties:
+        charger_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+        periods:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PricingPeriodInput'
+
+    BulkSetPricingResponse:
+      type: object
+      properties:
+        updated:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Charger IDs that were updated successfully
+        errors:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of charger_id to error message for failed updates
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: periods 0 and 1 overlap
+    NotFound:
+      description: Charger not found or no pricing configured
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: charger not found
